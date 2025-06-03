@@ -1,0 +1,9 @@
+//Per tanggal 27 Mei 2025
+
+npx react-native run-android -> Buat run app nya 
+npm install sqlite3 -> sqlite3
+npm install --save ml-regression-simple-linear -> Regression Liner
+npx react-native start --reset-cache
+
+//Per tanggal 28 Mei 2025
+npm install @react-native-async-storage/async-storage -> Buat storage simpen user
