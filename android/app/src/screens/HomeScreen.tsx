@@ -1,23 +1,32 @@
-
-
-import React, { useEffect, useState, useRef } from 'react'; //tanggal 29/05/2025 
+import React, { useEffect, useState, useRef } from 'react';
 import {
-  View, Text, FlatList, TouchableOpacity, StyleSheet,
-  SafeAreaView, Dimensions, Animated
+  View,
+  Text,
+  FlatList,
+  TouchableOpacity,
+  StyleSheet,
+  SafeAreaView,
+  Dimensions,
+  Animated,
+  Image
 } from 'react-native';
+import LinearGradient from 'react-native-linear-gradient';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { PieChart } from 'react-native-chart-kit';
+import { PieChart } from 'react-native-gifted-charts';
 import db from '../db/db';
+import defaultProfile from '../icon/profile.png';
 
 const { width } = Dimensions.get('window');
 
 export default function HomeScreen({ navigation }: any) {
   const [expenses, setExpenses] = useState<any[]>([]);
   const [userName, setUserName] = useState('');
-  const totalBalance = 1200;
+  const [profileImage, setProfileImage] = useState<string | null>(null);
 
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(20)).current;
+
+  const totalBalance = expenses.reduce((sum, e) => sum + e.amount, 0);
 
   useEffect(() => {
     Animated.parallel([
@@ -28,7 +37,10 @@ export default function HomeScreen({ navigation }: any) {
     const loadData = async () => {
       const userId = await AsyncStorage.getItem('userId');
       const storedName = await AsyncStorage.getItem('userName');
+      const storedImage = await AsyncStorage.getItem('userProfile');
+
       if (storedName) setUserName(storedName);
+      if (storedImage) setProfileImage(storedImage);
 
       if (!userId) {
         console.log('User ID not found.');
@@ -64,17 +76,11 @@ export default function HomeScreen({ navigation }: any) {
         <Text style={styles.expenseLabel}>{item.type}</Text>
         <Text style={styles.expenseDate}>{item.createdAt.slice(0, 10)}</Text>
       </View>
-      <Text style={styles.expenseAmount}>-${item.amount.toFixed(2)}</Text>
+      <Text style={styles.expenseAmount}>-Rp {item.amount.toLocaleString('id-ID')}</Text>
     </View>
   );
 
-  const chartData = expenses.map((e, i) => ({
-    name: e.type,
-    amount: e.amount,
-    color: ['#2A9D8F', '#E76F51', '#F4A261', '#264653'][i % 4],
-    legendFontColor: '#333',
-    legendFontSize: 14,
-  }));
+  const colors = ['#2A9D8F', '#E76F51', '#F4A261', '#264653'];
 
   return (
     <Animated.View style={[styles.container, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
@@ -82,26 +88,42 @@ export default function HomeScreen({ navigation }: any) {
         <FlatList
           ListHeaderComponent={
             <>
-              <View style={styles.header}>
-                {/* ✅ Tambahan menampilkan nama user */}
-                <Text style={styles.userGreeting}>Hi, {userName}</Text>
+              <View style={{ position: 'relative' }}>
+                <LinearGradient
+                  colors={['#4E6EF2', '#5D86F3']}
+                  style={styles.headerGradient}
+                />
 
-                <Text style={styles.accountTitle}>Main Account</Text>
-                <Text style={styles.balance}>${totalBalance.toFixed(2)}</Text>
-                <Text style={styles.balanceChange}>+2,775$ this month</Text>
+                <View style={{ position: 'absolute', top: 20, right: 20, zIndex: 1 }}>
+                  <TouchableOpacity onPress={() => navigation.navigate('EditProfile')}>
+                    <Image
+                      source={profileImage ? { uri: profileImage } : defaultProfile}
+                      style={{ width: 40, height: 40, borderRadius: 20 }}
+                    />
+                  </TouchableOpacity>
+                </View>
+
+                <View style={styles.headerContent}>
+                  <Text style={styles.userGreeting}>Hi, {userName}</Text>
+                  <Text style={styles.accountTitle}>Main Account</Text>
+                  <Text style={styles.balance}>Rp {totalBalance.toLocaleString('id-ID')}</Text>
+                  <Text style={styles.balanceChange}>+Rp 2.775.000 bulan ini</Text>
+                </View>
               </View>
 
               <View style={styles.chartContainer}>
                 <PieChart
-                  data={chartData}
-                  width={width - 32}
-                  height={180}
-                  accessor="amount"
-                  backgroundColor="transparent"
-                  paddingLeft="15"
-                  absolute
-                  chartConfig={{ color: () => '#000' }}
-                  style={styles.pieChart}
+                  data={expenses.map((e, i) => ({
+                    value: e.amount,
+                    color: colors[i % colors.length],
+                    text: e.type,
+                  }))}
+                  donut
+                  showText
+                  textColor="white"
+                  textSize={12}
+                  radius={90}
+                  innerRadius={50}
                 />
               </View>
 
@@ -131,12 +153,16 @@ export default function HomeScreen({ navigation }: any) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F0F4F8' },
-  header: {
-    alignItems: 'center',
-    paddingVertical: 20,
-    backgroundColor: '#4E6EF2',
+  headerGradient: {
+    height: 200,
     borderBottomLeftRadius: 20,
     borderBottomRightRadius: 20
+  },
+  headerContent: {
+    position: 'absolute',
+    top: 40,
+    width: '100%',
+    alignItems: 'center'
   },
   userGreeting: {
     fontSize: 18,
@@ -147,8 +173,7 @@ const styles = StyleSheet.create({
   accountTitle: { fontSize: 16, color: '#FFF' },
   balance: { fontSize: 32, fontWeight: 'bold', color: '#FFF' },
   balanceChange: { fontSize: 14, color: '#D0E1FD', marginTop: 4 },
-  chartContainer: { paddingHorizontal: 16, marginTop: 20 },
-  pieChart: { marginVertical: 8, borderRadius: 16, alignSelf: 'center' },
+  chartContainer: { paddingHorizontal: 16, marginTop: 20, alignItems: 'center' },
   transactionHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',

@@ -12,6 +12,7 @@ import HomeScreen from './android/app/src/screens/HomeScreen';
 import { AddExpenseScreen } from './android/app/src/screens/AddExpenseScreen';
 import { PredictionScreen } from './android/app/src/screens/PredictionScreen';
 import AdminUserList from './android/app/src/screens/AdminUserList';
+import EditNewProfile from './android/app/src/screens/EditNewProfile';
 
 import { createUserTable, createExpenseTable } from './android/app/src/db/db';
 
@@ -47,6 +48,7 @@ export default function App(): JSX.Element {
         <Stack.Screen name="Prediction" component={PredictionScreen} />
         <Stack.Screen name="Admin" component={AdminUserList} />
         <Stack.Screen name="LoginAsAdmin" component={LoginAsAdmin} />
+        <Stack.Screen name="EditProfile" component={EditNewProfile} />
       </Stack.Navigator>
     </NavigationContainer>
   );
