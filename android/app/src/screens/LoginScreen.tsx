@@ -1,101 +1,188 @@
-// import React from 'react';
-// import { View, Text, TextInput, Button, StyleSheet } from 'react-native';
-
-// export default function LoginScreen({ navigation }) {
-//   return (
-//     <View style={styles.container}>
-//       <Text style={styles.title}>Login</Text>
-//       <TextInput placeholder="Email" style={styles.input} />
-//       <TextInput placeholder="Password" secureTextEntry style={styles.input} />
-//       <Button title="Login" onPress={() => navigation.navigate('Home')} />
-//       <Text style={styles.signIn} onPress={() => navigation.navigate('Register')}>Sign in</Text>
-//     </View>
-//   );
-// }
-
-// const styles = StyleSheet.create({
-//   container: { flex: 1, justifyContent: 'center', padding: 20 },
-//   title: { fontSize: 24, marginBottom: 20, textAlign: 'center' },
-//   input: { borderWidth: 1, padding: 10, marginVertical: 8, borderRadius: 8 },
-//   signIn: { marginTop: 15, textAlign: 'center', color: 'blue' },
-// });
-
-// import React from 'react';
-// import { View, Text, TextInput, Button, StyleSheet } from 'react-native';
-
 import React, { useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert } from 'react-native';
 import { checkUserExists, User } from '../db/db';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import EyeIcon from '../components/icons/EyeIcon'; // Ganti path Image ke komponen Ikon
 
-export function LoginScreen({ navigation }: any) {
+export function LoginScreen({ navigation, onLoginSuccess }: any) { 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [secureText, setSecureText] = useState(true);
   const ADMIN_CREDENTIAL = {
-  email: 'admin123',
-  password: 'adminpass',
+    email: 'admin123',
+    password: 'adminpass',
   };
 
-  type User = {
-  id: number;
-  name: string;
-  email: string;
-  password: string;
-};
-
- const handleLogin = async () => {
-  const user: User | null = await checkUserExists(email, password);
-  if (user && email !== ADMIN_CREDENTIAL.email) {
-    await AsyncStorage.setItem('userId', user.id.toString());
-    await AsyncStorage.setItem('userName', user.name); // ⬅️ tambahan ini
-    navigation.navigate('Home');
-  } else if (email === ADMIN_CREDENTIAL.email && password === ADMIN_CREDENTIAL.password) {
-    navigation.navigate('Admin');
-  } else {
-    Alert.alert('Login Failed', 'Email Or Password Invalid!');
-  }
-};
-
+  const handleLogin = async () => {
+    try {
+      if (email.toLowerCase() === ADMIN_CREDENTIAL.email && password === ADMIN_CREDENTIAL.password) {
+        navigation.navigate('Admin');
+        return;
+      }
+      const user: User | null = await checkUserExists(email, password);
+      if (user) {
+        await AsyncStorage.setItem('userId', user.id.toString());
+        await AsyncStorage.setItem('userName', user.name);
+        if (onLoginSuccess) {
+            onLoginSuccess();
+        }
+      } else {
+        Alert.alert('Login Gagal', 'Email atau Password tidak valid!');
+      }
+    } catch (error) {
+      console.error("Login error:", error);
+      Alert.alert('Error', 'Terjadi kesalahan saat mencoba login.');
+    }
+  };
 
   return (
-    <View style={loginStyles.container}>
-      <Text style={loginStyles.title}>Login</Text>
+    <View style={styles.container}>
+      <View style={styles.header}>
+        <Text style={styles.headerTitle}>Welcome</Text>
+      </View>
+      <View style={styles.formContainer}>
+        <Text style={styles.label}>Username Or Email</Text>
+        <TextInput 
+          placeholder="example@example.com" 
+          style={styles.input} 
+          keyboardType="email-address" 
+          onChangeText={setEmail} 
+          value={email} 
+          autoCapitalize="none"
+        />
+        
+        <Text style={styles.label}>Password</Text>
+        <View style={styles.passwordContainer}>
+          <TextInput 
+            placeholder="••••••••" 
+            style={styles.inputPassword} 
+            secureTextEntry={secureText}
+            onChangeText={setPassword} 
+            value={password}
+          />
+          <TouchableOpacity onPress={() => setSecureText(!secureText)}>
+            <EyeIcon style={styles.eyeIcon} stroke={secureText ? '#A1A1A1' : '#0052FF'} />
+          </TouchableOpacity>
+        </View>
+        
+        <TouchableOpacity>
+            <Text style={styles.forgotPassword}>Forgot Password?</Text>
+        </TouchableOpacity>
 
-      <TextInput placeholder="Email" style={loginStyles.input} keyboardType="email-address" onChangeText={setEmail} value={email} />
-      <TextInput placeholder="Password" style={loginStyles.input} secureTextEntry onChangeText={setPassword} value={password} />
+        <TouchableOpacity style={styles.buttonPrimary} onPress={handleLogin}>
+          <Text style={styles.buttonTextPrimary}>Log In</Text>
+        </TouchableOpacity>
 
-      <TouchableOpacity style={loginStyles.button} onPress={handleLogin}>
-        <Text style={loginStyles.buttonText}>Log in</Text>
-      </TouchableOpacity>
+        <TouchableOpacity style={styles.buttonSecondary} onPress={() => navigation.navigate('Register')}>
+          <Text style={styles.buttonTextSecondary}>Sign Up</Text>
+        </TouchableOpacity>
 
-      <TouchableOpacity onPress={() => navigation.navigate('Register')}>
-        <Text style={loginStyles.link}>Don't have an account? Register</Text>
-      </TouchableOpacity>
+        <View style={styles.footerTextContainer}>
+            <Text style={styles.footerText}>Don't have an account? </Text>
+            <TouchableOpacity onPress={() => navigation.navigate('Register')}>
+                <Text style={[styles.footerText, styles.link]}>Sign Up</Text>
+            </TouchableOpacity>
+        </View>
+      </View>
     </View>
   );
 }
 
-const loginStyles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#fff', padding: 24, justifyContent: 'center' },
-  title: { fontSize: 22, fontWeight: 'bold', marginBottom: 24, textAlign: 'left' },
-  input: {
-    backgroundColor: '#f1f5f9',
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    borderRadius: 8,
-    marginBottom: 16,
-    fontSize: 16,
-    borderWidth: 1,
-    borderColor: '#e2e8f0'
-  },
-  button: {
-    backgroundColor: '#2563eb',
-    paddingVertical: 14,
-    borderRadius: 8,
-    alignItems: 'center',
-    marginTop: 8,
-    elevation: 2
-  },
-  buttonText: { color: '#fff', fontWeight: 'bold', fontSize: 16 },
-  link: { marginTop: 20, textAlign: 'center', color: '#2563eb', fontWeight: '500' }
+const styles = StyleSheet.create({
+    container: {
+        flex: 1,
+        backgroundColor: '#0052FF',
+    },
+    header: {
+        flex: 1,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    headerTitle: {
+        fontSize: 40,
+        fontWeight: 'bold',
+        color: '#FFFFFF',
+    },
+    formContainer: {
+        flex: 2.5,
+        backgroundColor: '#E6F0FF',
+        borderTopLeftRadius: 40,
+        borderTopRightRadius: 40,
+        paddingHorizontal: 24,
+        paddingTop: 30,
+    },
+    label: {
+        fontSize: 16,
+        color: '#0D253C',
+        fontWeight: '600',
+        marginBottom: 8,
+    },
+    input: {
+        backgroundColor: '#FFFFFF',
+        borderRadius: 15,
+        paddingHorizontal: 20,
+        paddingVertical: 15,
+        fontSize: 16,
+        marginBottom: 20,
+        color: '#0D253C',
+    },
+    passwordContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#FFFFFF',
+        borderRadius: 15,
+        marginBottom: 10,
+        paddingHorizontal: 20,
+    },
+    inputPassword: {
+        flex: 1,
+        paddingVertical: 15,
+        fontSize: 16,
+        color: '#0D253C',
+    },
+    eyeIcon: {
+        width: 24,
+        height: 24,
+    },
+    forgotPassword: {
+        textAlign: 'right',
+        color: '#0052FF',
+        marginBottom: 30,
+    },
+    buttonPrimary: {
+        backgroundColor: '#0052FF',
+        paddingVertical: 18,
+        borderRadius: 15,
+        alignItems: 'center',
+        marginBottom: 15,
+    },
+    buttonTextPrimary: {
+        color: '#FFFFFF',
+        fontSize: 18,
+        fontWeight: 'bold',
+    },
+    buttonSecondary: {
+        backgroundColor: '#CDE0FF',
+        paddingVertical: 18,
+        borderRadius: 15,
+        alignItems: 'center',
+    },
+    buttonTextSecondary: {
+        color: '#0052FF',
+        fontSize: 18,
+        fontWeight: 'bold',
+    },
+    footerTextContainer: {
+        flexDirection: 'row',
+        justifyContent: 'center',
+        marginTop: 20,
+    },
+    footerText: {
+        color: '#858585',
+        fontSize: 14,
+    },
+    link: {
+        color: '#0052FF',
+        fontWeight: 'bold',
+    },
 });

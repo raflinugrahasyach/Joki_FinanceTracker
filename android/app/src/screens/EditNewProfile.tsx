@@ -1,115 +1,158 @@
 import React, { useState, useEffect } from 'react';
 import {
-  View, Text, TextInput, StyleSheet, TouchableOpacity,
-  Image, Alert, Platform
+  View,
+  Text,
+  StyleSheet,
+  TextInput,
+  TouchableOpacity,
+  SafeAreaView,
+  ScrollView,
+  Image,
+  Alert
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { launchImageLibrary } from 'react-native-image-picker';
-import defaultProfile from '../icon/profile.png';
+import { launchImageLibrary, ImagePickerResponse, Asset } from 'react-native-image-picker';
+import db from '../db/db';
+import UserIcon from '../components/icons/UserIcon';
+import CameraIcon from '../components/icons/CameraIcon';
 
-export default function EditProfileScreen({ navigation }: any) {
-  const [username, setUsername] = useState('');
-  const [phone, setPhone] = useState('');
-  const [email, setEmail] = useState('');
-  const [profileImage, setProfileImage] = useState<string | null>(null);
-  const [userId, setUserId] = useState('');
+export default function EditNewProfile({ navigation }: any) {
+    const [name, setName] = useState('');
+    const [email, setEmail] = useState('');
+    const [phone, setPhone] = useState('');
+    const [occupation, setOccupation] = useState('');
+    const [profileImage, setProfileImage] = useState<string | null>(null);
+    const [currentUserId, setCurrentUserId] = useState<string | null>(null);
 
-  useEffect(() => {
-  const loadUserData = async () => {
-    const storedId = await AsyncStorage.getItem('userId');
-    const storedName = await AsyncStorage.getItem('userName');
-    const storedImage = await AsyncStorage.getItem('userProfile');
+    useEffect(() => {
+        const loadProfile = async () => {
+            const userId = await AsyncStorage.getItem('userId');
+            if (userId) {
+                setCurrentUserId(userId);
+                db.transaction(tx => {
+                    tx.executeSql('SELECT * FROM users WHERE id = ?', [parseInt(userId, 10)], (_, { rows }) => {
+                        if (rows.length > 0) {
+                            const user = rows.item(0);
+                            setName(user.name || '');
+                            setEmail(user.email || '');
+                            setPhone(user.phone || '');
+                            setOccupation(user.occupation || '');
+                        }
+                    });
+                });
+            }
+        };
+        loadProfile();
+    }, []);
 
-    if (storedName) setUsername(storedName);
-    if (storedImage) setProfileImage(storedImage);
-    if (storedId) setUserId(storedId); // ini tambahan
-  };
-  loadUserData();
-}, []);
+    const handleChoosePhoto = () => {
+        launchImageLibrary({ mediaType: 'photo', quality: 0.5 }, (response: ImagePickerResponse) => {
+            if (response.didCancel) {
+                console.log('User cancelled image picker');
+            } else if (response.errorCode) {
+                console.log('ImagePicker Error: ', response.errorMessage);
+                Alert.alert('Error', 'Gagal memuat gambar.');
+            } else if (response.assets && response.assets.length > 0) {
+                const selectedImage: Asset = response.assets[0];
+                setProfileImage(selectedImage.uri || null);
+            }
+        });
+    };
 
-  const handleSelectImage = async () => {
-    const result = await launchImageLibrary({
-      mediaType: 'photo',
-      quality: 0.7,
-      selectionLimit: 1
-    });
+    const handleSaveChanges = async () => {
+        if (!name.trim()) {
+            Alert.alert('Gagal', 'Nama tidak boleh kosong.');
+            return;
+        }
+        
+        if (currentUserId) {
+            db.transaction(tx => {
+                tx.executeSql(
+                    'UPDATE users SET name = ?, phone = ?, occupation = ? WHERE id = ?',
+                    [name, phone, occupation, parseInt(currentUserId, 10)],
+                    async (tx, results) => {
+                        if (results.rowsAffected > 0) {
+                            await AsyncStorage.setItem('userName', name);
+                            Alert.alert('Sukses', 'Profil berhasil diperbarui.');
+                            navigation.goBack();
+                        } else {
+                            Alert.alert('Gagal', 'Tidak ada data yang diperbarui.');
+                        }
+                    },
+                    (tx, error) => {
+                        Alert.alert('Gagal', 'Tidak dapat memperbarui profil di database.');
+                        console.log(error);
+                        return true; // prevent transaction rollback
+                    }
+                );
+            });
+        } else {
+            Alert.alert('Error', 'User ID tidak ditemukan, silakan login ulang.');
+        }
+    };
+    
+    return (
+        <SafeAreaView style={styles.safeArea}>
+            <View style={styles.header}>
+                <TouchableOpacity onPress={() => navigation.goBack()}>
+                    <Text style={styles.backButton}>←</Text>
+                </TouchableOpacity>
+                <Text style={styles.headerTitle}>Edit Profile</Text>
+                <View style={{width: 28}} />
+            </View>
+            <ScrollView style={styles.container}>
+                <View style={styles.profileSection}>
+                    <TouchableOpacity style={styles.avatarContainer} onPress={handleChoosePhoto}>
+                        {profileImage ? (
+                            <Image source={{ uri: profileImage }} style={styles.avatar} />
+                        ) : (
+                            <View style={styles.avatarPlaceholder}>
+                                <UserIcon stroke="#0052FF" width={60} height={60} />
+                            </View>
+                        )}
+                        <View style={styles.cameraButton}>
+                            <CameraIcon stroke="#FFFFFF" width={20} height={20} />
+                        </View>
+                    </TouchableOpacity>
+                </View>
 
-    if (result.didCancel) return;
-    if (result.errorMessage) {
-      Alert.alert('Error', result.errorMessage);
-      return;
-    }
+                <View style={styles.form}>
+                    <Text style={styles.label}>Full Name</Text>
+                    <TextInput style={styles.input} value={name} onChangeText={setName} placeholder="Masukkan nama lengkap" />
 
-    const uri = result.assets?.[0]?.uri;
-    if (uri) {
-      setProfileImage(uri);
-      await AsyncStorage.setItem('userProfile', uri);
-    }
-  };
+                    <Text style={styles.label}>Email</Text>
+                    <TextInput style={[styles.input, styles.disabledInput]} value={email} editable={false} selectTextOnFocus={false} />
 
-  return (
-    <View style={styles.container}>
-      <TouchableOpacity onPress={() => navigation.goBack()}>
-        <Text style={styles.back}>←</Text>
-      </TouchableOpacity>
+                    <Text style={styles.label}>Phone Number</Text>
+                    <TextInput style={styles.input} value={phone} onChangeText={setPhone} keyboardType="phone-pad" placeholder="Masukkan nomor telepon" />
 
-      <Text style={styles.title}>Edit My Profile</Text>
+                    <Text style={styles.label}>Occupation</Text>
+                    <TextInput style={styles.input} value={occupation} onChangeText={setOccupation} placeholder="Masukkan pekerjaan" />
+                </View>
 
-      <TouchableOpacity onPress={handleSelectImage}>
-        <Image
-            source={profileImage ? { uri: profileImage } : defaultProfile}
-            style={styles.avatar}
-        />
-        <Text style={styles.editText}>Edit Photo</Text>
-      </TouchableOpacity>
-
-      <Text style={styles.userId}>ID: {userId}</Text>
-
-      <Text style={styles.label}>Username</Text>
-      <TextInput style={styles.input} value={username} onChangeText={setUsername} />
-
-      <Text style={styles.label}>Phone</Text>
-      <TextInput style={styles.input} keyboardType="phone-pad" value={phone} onChangeText={setPhone} />
-
-      <Text style={styles.label}>Email Address</Text>
-      <TextInput style={styles.input} keyboardType="email-address" value={email} onChangeText={setEmail} />
-
-      <TouchableOpacity style={styles.button}>
-        <Text style={styles.buttonText}>Update Profile</Text>
-      </TouchableOpacity>
-    </View>
-  );
+                <TouchableOpacity style={styles.saveButton} onPress={handleSaveChanges}>
+                    <Text style={styles.saveButtonText}>Save Changes</Text>
+                </TouchableOpacity>
+            </ScrollView>
+        </SafeAreaView>
+    );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#DCEAFF', padding: 20 },
-  back: { fontSize: 24, color: '#333' },
-  title: { fontSize: 24, fontWeight: 'bold', textAlign: 'center', marginVertical: 10 },
-  avatar: {
-    width: 100, height: 100, borderRadius: 50,
-    alignSelf: 'center', marginTop: 10
-  },
-  editText: {
-    textAlign: 'center',
-    color: '#4E6EF2',
-    fontSize: 12,
-    marginTop: 4
-  },
-  userId: { textAlign: 'center', color: '#888', marginBottom: 20 },
-  label: { fontWeight: '600', marginTop: 10 },
-  input: {
-    borderWidth: 1,
-    borderColor: '#999',
-    borderRadius: 10,
-    padding: 10,
-    backgroundColor: '#fff',
-    marginBottom: 10
-  },
-  button: {
-    backgroundColor: '#4E6EF2',
-    padding: 15,
-    borderRadius: 10,
-    marginTop: 20
-  },
-  buttonText: { color: '#fff', textAlign: 'center', fontWeight: 'bold' }
+    safeArea: { flex: 1, backgroundColor: '#0052FF' },
+    container: { flex: 1, backgroundColor: '#E6F0FF' },
+    header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingVertical: 15 },
+    backButton: { fontSize: 28, color: '#FFFFFF', fontWeight: 'bold' },
+    headerTitle: { color: '#FFFFFF', fontSize: 20, fontWeight: 'bold' },
+    profileSection: { alignItems: 'center', marginVertical: 30 },
+    avatarContainer: { position: 'relative', width: 120, height: 120 },
+    avatar: { width: 120, height: 120, borderRadius: 60, backgroundColor: '#FFFFFF' },
+    avatarPlaceholder: { width: 120, height: 120, borderRadius: 60, backgroundColor: '#CDE0FF', justifyContent: 'center', alignItems: 'center' },
+    cameraButton: { position: 'absolute', bottom: 0, right: 0, backgroundColor: '#0052FF', padding: 8, borderRadius: 20, borderWidth: 2, borderColor: '#FFFFFF' },
+    form: { paddingHorizontal: 24 },
+    label: { fontSize: 16, color: '#0D253C', fontWeight: '600', marginBottom: 8 },
+    input: { backgroundColor: '#FFFFFF', borderRadius: 15, paddingHorizontal: 20, paddingVertical: 15, fontSize: 16, marginBottom: 20, color: '#0D253C' },
+    disabledInput: { backgroundColor: '#F0F4F8', color: '#858585' },
+    saveButton: { backgroundColor: '#0052FF', marginHorizontal: 24, paddingVertical: 18, borderRadius: 15, alignItems: 'center', marginTop: 10, marginBottom: 40 },
+    saveButtonText: { color: '#FFFFFF', fontSize: 18, fontWeight: 'bold' },
 });

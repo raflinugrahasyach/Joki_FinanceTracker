@@ -5,7 +5,10 @@ import {
   StyleSheet,
   ScrollView,
   TouchableOpacity,
-  Dimensions,
+  Platform,
+  PermissionsAndroid,
+  Alert,
+  SafeAreaView,
   FlatList,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -14,227 +17,343 @@ import RNFS from 'react-native-fs';
 import XLSX from 'xlsx';
 import Share from 'react-native-share';
 import RNHTMLtoPDF from 'react-native-html-to-pdf';
+import { BarChart, PieChart } from 'react-native-gifted-charts';
 
-const screenWidth = Dimensions.get('window').width;
+// Import Ikon SVG
+import GroceriesIcon from '../components/icons/GroceriesIcon';
+import TransportIcon from '../components/icons/TransportIcon';
+import EntertainmentIcon from '../components/icons/EntertainmentIcon';
+import BillsIcon from '../components/icons/BillsIcon';
+import WalletIcon from '../components/icons/WalletIcon';
+import DocumentIcon from '../components/icons/DocumentIcon';
+import SearchIcon from '../components/icons/SearchIcon';
+import CalendarIcon from '../components/icons/CalendarIcon';
+import UserIcon from '../components/icons/UserIcon';
+import ExcelIcon from '../components/icons/ExcelIcon';
 
-export function PredictionScreen() {
+const categoryIcons: { [key: string]: React.FC<any> } = {
+    'Makanan': GroceriesIcon,
+    'Transportasi': TransportIcon,
+    'Hiburan': EntertainmentIcon,
+    'Tagihan': BillsIcon,
+    'Default': BillsIcon,
+};
+
+export function PredictionScreen({ navigation }: any) {
   const [activeTab, setActiveTab] = useState<'Prediction' | 'Analisis'>('Prediction');
   const [expenses, setExpenses] = useState<any[]>([]);
+  const [predictedTotal, setPredictedTotal] = useState(0);
+
+  const requestStoragePermission = async () => {
+    if (Platform.OS === 'android' && Platform.Version < 29) {
+      try {
+        const granted = await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.WRITE_EXTERNAL_STORAGE);
+        return granted === PermissionsAndroid.RESULTS.GRANTED;
+      } catch (err) { return false; }
+    }
+    return true;
+  };
+
+  const linearRegression = (data: { x: number; y: number }[]) => {
+    if (data.length < 2) return { slope: 0, intercept: data.length === 1 ? data[0].y : 0 };
+    const n = data.length;
+    let sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0;
+    for (const point of data) {
+      sumX += point.x;
+      sumY += point.y;
+      sumXY += point.x * point.y;
+      sumX2 += point.x * point.x;
+    }
+    const denominator = (n * sumX2 - sumX * sumX);
+    if (denominator === 0) return { slope: 0, intercept: sumY / n };
+    const slope = (n * sumXY - sumX * sumY) / denominator;
+    const intercept = (sumY - slope * sumX) / n;
+    return { slope, intercept };
+  };
 
   useEffect(() => {
     const loadData = async () => {
       const userId = await AsyncStorage.getItem('userId');
       if (!userId) return;
-
       db.transaction(tx => {
-        tx.executeSql(
-          'SELECT * FROM expenses WHERE user_id = ?',
-          [userId],
+        tx.executeSql('SELECT * FROM expenses WHERE user_id = ? AND type != "Pemasukan" ORDER BY createdAt ASC', [parseInt(userId)],
           (_, result) => {
             const data: any[] = [];
-            for (let i = 0; i < result.rows.length; i++) {
-              data.push(result.rows.item(i));
-            }
+            for (let i = 0; i < result.rows.length; i++) data.push(result.rows.item(i));
             setExpenses(data);
-          },
-          (_, error) => {
-            console.log('Select error:', error);
-            return true;
-          }
-        );
+            const expenseData = data.map((e, index) => ({ x: index + 1, y: e.amount }));
+            const { slope, intercept } = linearRegression(expenseData);
+            const nextPrediction = slope * (expenseData.length + 1) + intercept;
+            setPredictedTotal(isNaN(nextPrediction) || nextPrediction < 0 ? 0 : nextPrediction);
+          });
       });
     };
-
     loadData();
   }, []);
-
-  const linearRegression = (data: number[]): number => {
-    const n = data.length;
-    if (n === 0) return 0;
-    const x = Array.from({ length: n }, (_, i) => i + 1);
-    const sumX = x.reduce((a, b) => a + b, 0);
-    const sumY = data.reduce((a, b) => a + b, 0);
-    const sumXY = data.reduce((acc, y, i) => acc + y * x[i], 0);
-    const sumX2 = x.reduce((acc, xi) => acc + xi * xi, 0);
-    const slope = (n * sumXY - sumX * sumY) / (n * sumX2 - sumX * sumX || 1);
-    const intercept = (sumY - slope * sumX) / n;
-    const prediction = slope * (n + 1) + intercept;
-    return isNaN(prediction) || prediction < 0 ? 0 : prediction;
-  };
-
-  const getWeekRange = (dateStr: string) => {
-    const day = new Date(dateStr).getDate();
-    if (day <= 7) return '1-7';
-    if (day <= 14) return '8-14';
-    if (day <= 21) return '15-21';
-    return '22-31';
-  };
-
-  const weeklyTotals: { [week: string]: number[] } = {};
-  expenses.forEach((e) => {
-    const week = getWeekRange(e.createdAt);
-    if (!weeklyTotals[week]) weeklyTotals[week] = [];
-    weeklyTotals[week].push(e.amount);
-  });
-
-  const labels: string[] = ['1-7', '8-14', '15-21', '22-31'];
-  const weeklySums: number[] = labels.map((week) => {
-    return (weeklyTotals[week] || []).reduce((sum, val) => sum + val, 0);
-  });
-
-  const predictedTotal = linearRegression(weeklySums);
-
-  const groupedByCategory: Record<string, number> = expenses.reduce((acc, curr) => {
-    if (!acc[curr.category]) acc[curr.category] = 0;
-    acc[curr.category] += curr.amount;
-    return acc;
-  }, {} as Record<string, number>);
+  
+  // FUNGSI YANG HILANG SEBELUMNYA - SEKARANG SUDAH ADA
+  const handleDownload = () => {
+    Alert.alert(
+        "Download Report",
+        "Pilih format file yang ingin Anda download:",
+        [
+            { text: "PDF", onPress: () => exportToPDF() },
+            { text: "Excel", onPress: () => exportToExcel() },
+            { text: "Batal", style: "cancel" },
+        ]
+    );
+  }
 
   const exportToExcel = async () => {
-    const ws = XLSX.utils.json_to_sheet(expenses);
+    const hasPermission = await requestStoragePermission();
+    if (!hasPermission) {
+        Alert.alert("Izin Ditolak", "Izin penyimpanan diperlukan untuk menyimpan file.");
+        return;
+    }
+    const dataToExport = expenses.map(e => ({
+        Tipe: e.type,
+        Jumlah: e.amount,
+        Tanggal: new Date(e.createdAt).toISOString(),
+    }));
+    const ws = XLSX.utils.json_to_sheet(dataToExport);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Expenses');
     const wbout = XLSX.write(wb, { type: 'binary', bookType: 'xlsx' });
-    const file = `${RNFS.DownloadDirectoryPath}/prediksi_${Date.now()}.xlsx`;
-    await RNFS.writeFile(file, wbout, 'ascii');
-    await Share.open({ url: 'file://' + file });
+    const file = `${RNFS.DownloadDirectoryPath}/pengeluaran_${Date.now()}.xlsx`;
+    try {
+        await RNFS.writeFile(file, wbout, 'ascii');
+        Alert.alert("Sukses!", `File Excel disimpan di folder Downloads.`);
+        await Share.open({ url: 'file://' + file, type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    } catch(error: any) {
+        if (error.message.includes("User did not share")) {
+            console.log("Pengguna membatalkan dialog share.");
+        } else {
+            console.error("Error exporting to Excel:", error);
+            Alert.alert("Gagal Ekspor", `Terjadi kesalahan: ${error.message}`);
+        }
+    }
   };
 
   const exportToPDF = async () => {
+    const hasPermission = await requestStoragePermission();
+    if (!hasPermission) {
+        Alert.alert("Izin Ditolak", "Izin penyimpanan diperlukan untuk menyimpan file.");
+        return;
+    }
     const htmlContent = `
-      <h1>Prediksi Bulan Depan</h1>
-      <p>Total: Rp ${predictedTotal.toLocaleString('id-ID')}</p>
-      <h2>Riwayat Transaksi:</h2>
-      <ul>
-        ${expenses.map((e: any) => `<li>${e.type} - Rp ${e.amount.toLocaleString('id-ID')}</li>`).join('')}
-      </ul>
-    `;
-    const options = {
-      html: htmlContent,
-      fileName: `prediksi_${Date.now()}`,
-      directory: 'Documents',
-    };
-    const pdf = await RNHTMLtoPDF.convert(options);
-    await Share.open({ url: 'file://' + pdf.filePath });
+      <html><head><style>body{font-family:sans-serif}h1,h2{color:#0D253C}table{width:100%;border-collapse:collapse}th,td{border:1px solid #ddd;padding:8px;text-align:left}th{background-color:#f2f2f2}</style></head>
+      <body><h1>Laporan Pengeluaran</h1><h2>Prediksi Bulan Berikutnya</h2><p>Total Prediksi:<strong>Rp ${predictedTotal.toLocaleString('id-ID')}</strong></p><h2>Riwayat Transaksi:</h2><table><thead><tr><th>Tipe</th><th>Jumlah</th><th>Tanggal</th></tr></thead><tbody>${expenses.map((e:any)=>`<tr><td>${e.type}</td><td>Rp ${e.amount.toLocaleString('id-ID')}</td><td>${new Date(e.createdAt).toLocaleDateString('id-ID')}</td></tr>`).join('')}</tbody></table></body></html>`;
+    const options = { html: htmlContent, fileName: `laporan_${Date.now()}`, directory: 'Documents' };
+    try {
+        const pdf = await RNHTMLtoPDF.convert(options);
+        Alert.alert("Sukses!", `File PDF disimpan di: ${pdf.filePath}`);
+        await Share.open({ url: 'file://' + pdf.filePath, type: 'application/pdf' });
+    } catch(error: any) {
+        if (error.message.includes("User did not share")) {
+            console.log("Pengguna membatalkan dialog share.");
+        } else {
+            console.error("Error exporting to PDF:", error);
+            Alert.alert("Gagal Ekspor", `Terjadi kesalahan: ${error.message}`);
+        }
+    }
   };
 
+  const barChartData = expenses.map((e, i) => ({ value: e.amount, label: ['M','T','W','T','F','S','S'][i % 7], frontColor: '#0052FF' }));
+  const totalExpense = expenses.reduce((sum, e) => sum + e.amount, 0);
+  const categoryData = expenses.reduce((acc, exp) => {
+    if (!acc[exp.type]) acc[exp.type] = { total: 0, count: 0 };
+    acc[exp.type].total += exp.amount;
+    acc[exp.type].count += 1;
+    return acc;
+  }, {} as Record<string, { total: number, count: number }>);
+
+  const colors = ['#0052FF', '#00C4DF', '#FFC837', '#FF82A9', '#7A4DFF'];
+  const pieChartData = Object.keys(categoryData).map((key, index) => ({
+    value: categoryData[key].total,
+    color: colors[index % colors.length],
+    label: key,
+    count: categoryData[key].count,
+  }));
+  
+  const renderRecentTransaction = ({ item }: { item: any }) => {
+    const Icon = categoryIcons[item.type] || categoryIcons['Default'];
+    const iconColor = pieChartData.find(d => d.label === item.type)?.color || '#A1A1A1';
+    return (
+        <View style={styles.transactionItem}>
+          <View style={[styles.transactionIconContainer, { backgroundColor: `${iconColor}20` }]}>
+              <Icon stroke={iconColor} width={28} height={28} /> 
+          </View>
+          <View style={styles.transactionDetails}>
+            <Text style={styles.transactionTitle}>{item.type}</Text>
+            <Text style={styles.transactionDate}>{new Date(item.createdAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'long', year: 'numeric' })}</Text>
+          </View>
+          <Text style={styles.transactionAmount}>-Rp{item.amount.toLocaleString('id-ID')}</Text>
+        </View>
+      );
+  }
+
+  const renderAnalysisItem = (item: typeof pieChartData[0]) => {
+      const Icon = categoryIcons[item.label] || categoryIcons['Default'];
+      const percentage = totalExpense > 0 ? (item.value / totalExpense) * 100 : 0;
+      return (
+          <View style={styles.analysisItem} key={item.label}>
+              <View style={[styles.analysisIconContainer, { backgroundColor: `${item.color}30` }]}>
+                  <Icon stroke={item.color} width={28} height={28} />
+              </View>
+              <View style={styles.analysisDetails}>
+                  <Text style={styles.analysisLabel}>{item.label}</Text>
+                  <Text style={styles.analysisCount}>{item.count} transaksi</Text>
+              </View>
+              <View style={styles.analysisAmountContainer}>
+                  <Text style={styles.analysisAmount}>-Rp{item.value.toLocaleString('id-ID')}</Text>
+                  <Text style={styles.analysisPercentage}>{percentage.toFixed(1)}%</Text>
+              </View>
+          </View>
+      );
+  }
+
   return (
-    <View style={{ flex: 1 }}>
-      <View style={styles.tabContainer}>
-        <TouchableOpacity
-          style={[styles.tab, activeTab === 'Prediction' && styles.activeTab]}
-          onPress={() => setActiveTab('Prediction')}
-        >
-          <Text style={[styles.tabText, activeTab === 'Prediction' && styles.activeTabText]}>Prediction</Text>
+    <SafeAreaView style={styles.safeArea}>
+      <View style={styles.header}>
+        <TouchableOpacity onPress={() => navigation.goBack()}>
+            <Text style={styles.backButton}>←</Text>
         </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.tab, activeTab === 'Analisis' && styles.activeTab]}
-          onPress={() => setActiveTab('Analisis')}
-        >
-          <Text style={[styles.tabText, activeTab === 'Analisis' && styles.activeTabText]}>Analisis</Text>
+        <Text style={styles.headerTitle}>Prediction</Text>
+        <TouchableOpacity onPress={() => navigation.navigate('EditProfile')}>
+            <View style={styles.profileIcon}>
+                <UserIcon stroke="#FFFFFF" width={28} height={28}/>
+            </View>
         </TouchableOpacity>
       </View>
+      <View style={styles.container}>
+        <View style={styles.tabPillContainer}>
+            <TouchableOpacity style={[styles.tabPill, activeTab === 'Prediction' && styles.activeTabPill]} onPress={() => setActiveTab('Prediction')}>
+                <Text style={[styles.tabText, activeTab === 'Prediction' && styles.activeTabText]}>Prediction</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.tabPill, activeTab === 'Analisis' && styles.activeTabPill]} onPress={() => setActiveTab('Analisis')}>
+                <Text style={[styles.tabText, activeTab === 'Analisis' && styles.activeTabText]}>Analysis</Text>
+            </TouchableOpacity>
+        </View>
 
-      <ScrollView contentContainerStyle={styles.container}>
-        {activeTab === 'Prediction' ? (
-          <>
-            <Text style={styles.title}>Prediksi Bulan Depan</Text>
-            <Text style={styles.total}>Rp {predictedTotal.toLocaleString('id-ID')}</Text>
-            <Text style={styles.note}>Berdasarkan histori bulan sebelumnya</Text>
-            {weeklySums.map((sum, index) => (
-              <View key={index} style={{ marginVertical: 4 }}>
-                <Text>{labels[index]}</Text>
-                <View style={{ backgroundColor: '#ddd', height: 10, borderRadius: 5 }}>
-                  <View style={{
-                    backgroundColor: '#3B82F6',
-                    width: `${Math.min((sum / Math.max(...weeklySums)) * 100, 100)}%`,
-                    height: 10, borderRadius: 5
-                  }} />
-                </View>
-                <Text style={{ fontSize: 12, color: '#888' }}>Rp {sum.toLocaleString('id-ID')}</Text>
-              </View>
-            ))}
-            <View style={{ flexDirection: 'row', gap: 10, marginTop: 10 }}>
-              <TouchableOpacity style={[styles.exportButton, { backgroundColor: '#1E3A8A' }]} onPress={exportToPDF}>
-                <Text style={{ color: '#fff' }}>Export PDF</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={[styles.exportButton, { backgroundColor: '#059669' }]} onPress={exportToExcel}>
-                <Text style={{ color: '#fff' }}>Export Excel</Text>
-              </TouchableOpacity>
-            </View>
-            <Text style={[styles.title, { fontSize: 18, marginTop: 20 }]}>Riwayat Transaksi</Text>
-            <FlatList
-              data={expenses}
-              keyExtractor={(_, index) => index.toString()}
-              scrollEnabled={false}
-              renderItem={({ item }) => (
-                <View style={styles.transactionItem}>
-                  <Text style={styles.transactionTitle}>📌 {item.type}</Text>
-                  <Text style={styles.transactionAmount}>-Rp {item.amount.toLocaleString('id-ID')}</Text>
-                  <Text style={styles.transactionDate}>{new Date(item.createdAt).toLocaleString('id-ID')}</Text>
-                </View>
-              )}
-            />
-          </>
-        ) : (
-          <>
-            <Text style={styles.title}>Analisis Pengeluaran</Text>
-            {Object.entries(groupedByCategory).map(([category, value], i) => {
-              const amount = value as number;
-              return (
-                <View key={i} style={{ marginVertical: 6 }}>
-                  <Text style={{ fontWeight: 'bold' }}>{category}</Text>
-                  <View style={{ backgroundColor: '#ddd', height: 10, borderRadius: 5 }}>
-                    <View style={{
-                      backgroundColor: '#3B82F6',
-                      width: `${Math.min((amount / Math.max(...Object.values(groupedByCategory))) * 100, 100)}%`,
-                      height: 10, borderRadius: 5
-                    }} />
-                  </View>
-                  <Text style={{ fontSize: 12, color: '#888' }}>Rp {amount.toLocaleString('id-ID')}</Text>
-                </View>
-              );
-            })}
-          </>
-        )}
-      </ScrollView>
-    </View>
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
+            <Text style={styles.pageTitle}>{activeTab === 'Prediction' ? 'Next Month Prediction' : 'This Month Analysis'}</Text>
+            
+            {activeTab === 'Prediction' ? (
+                <>
+                    <View style={styles.card}>
+                        <View style={styles.cardHeader}>
+                            <Text style={styles.cardTitle}>Income & Expenses</Text>
+                            <View style={styles.cardIcons}>
+                                <TouchableOpacity><SearchIcon stroke="#0052FF" /></TouchableOpacity>
+                                <TouchableOpacity style={{marginLeft: 15}}><CalendarIcon stroke="#0052FF" /></TouchableOpacity>
+                            </View>
+                        </View>
+                        <View style={styles.barChartWrapper}>
+                            <BarChart data={barChartData} barWidth={8} spacing={35} roundedTop barBorderRadius={4} yAxisThickness={0} xAxisThickness={0} yAxisTextStyle={{color: '#858585'}}/>
+                        </View>
+                        <View style={styles.predictionRow}>
+                            <View style={styles.predictionItem}>
+                                <WalletIcon stroke="#0052FF" width={32} height={32}/>
+                                <View style={styles.predictionTextContainer}>
+                                    <Text style={styles.predictionLabel}>Expense</Text>
+                                    <Text style={styles.predictionAmount}>Rp{predictedTotal.toLocaleString('id-ID')}</Text>
+                                </View>
+                            </View>
+                            <TouchableOpacity style={styles.predictionItem} onPress={handleDownload}>
+                                <DocumentIcon stroke="#0052FF" width={32} height={32}/>
+                                <View style={styles.predictionTextContainer}>
+                                    <Text style={styles.predictionLabel}>Download</Text>
+                                    <Text style={styles.predictionAmount}>Report</Text>
+                                </View>
+                            </TouchableOpacity>
+                        </View>
+                    </View>
+                    <Text style={styles.transactionSectionTitle}>Transaction</Text>
+                    <FlatList
+                        data={expenses.slice(0, 5)} 
+                        keyExtractor={(item) => item.id.toString()}
+                        renderItem={renderRecentTransaction}
+                        scrollEnabled={false}
+                    />
+                </>
+            ) : (
+                <>
+                    <View style={styles.card}>
+                        <View style={styles.analysisContainer}>
+                            <PieChart 
+                                data={pieChartData}
+                                donut
+                                innerRadius={50}
+                                radius={80}
+                                showText={false}
+                                centerLabelComponent={() => (
+                                    <View style={{justifyContent: 'center', alignItems: 'center'}}>
+                                        <Text style={{fontSize: 12, color: '#858585'}}>Total</Text>
+                                        <Text style={{fontSize: 18, fontWeight: 'bold', color: '#0D253C'}}>{`Rp${(totalExpense/1000).toFixed(0)}k`}</Text>
+                                    </View>
+                                )}
+                            />
+                            <View style={styles.analysisLegend}>
+                                {pieChartData.map(item => (
+                                    <View key={item.label} style={styles.legendItem}>
+                                        <View style={[styles.legendDot, {backgroundColor: item.color}]} />
+                                        <Text style={styles.legendText}>{item.label}</Text>
+                                    </View>
+                                ))}
+                            </View>
+                        </View>
+                    </View>
+                    {pieChartData.map(renderAnalysisItem)}
+                </>
+            )}
+        </ScrollView>
+      </View>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { padding: 20 },
-  title: { fontSize: 22, fontWeight: 'bold', marginBottom: 5 },
-  total: { fontSize: 32, marginVertical: 10 },
-  note: { marginBottom: 20, fontSize: 12, color: 'gray' },
-  transactionItem: {
-    backgroundColor: '#f9f9f9', padding: 12, borderRadius: 8, marginVertical: 6,
-  },
-  transactionTitle: { fontWeight: 'bold', fontSize: 14 },
-  transactionAmount: { fontSize: 14, color: '#ef4444', marginVertical: 2 },
-  transactionDate: { fontSize: 12, color: 'gray' },
-  tabContainer: {
-    flexDirection: 'row', justifyContent: 'space-around', marginTop: 20,
-    backgroundColor: '#E5E7EB', borderRadius: 10, marginHorizontal: 20,
-  },
-  tab: { paddingVertical: 10, flex: 1, alignItems: 'center', borderRadius: 10 },
-  activeTab: { backgroundColor: '#3B82F6' },
-  tabText: { color: '#374151', fontWeight: '600' },
-  activeTabText: { color: '#FFFFFF' },
-  exportButton: {
-    flex: 1,
-    padding: 12,
-    borderRadius: 8,
-    alignItems: 'center',
-  },
+    safeArea: { flex: 1, backgroundColor: '#0052FF' },
+    container: { flex: 1, backgroundColor: '#E6F0FF' },
+    scrollContent: { paddingHorizontal: 24, paddingBottom: 40 },
+    header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingVertical: 15, backgroundColor: '#0052FF' },
+    backButton: { fontSize: 28, color: '#FFFFFF', fontWeight: 'bold' },
+    headerTitle: { color: '#FFFFFF', fontSize: 20, fontWeight: 'bold' },
+    profileIcon: { width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(255,255,255,0.3)', justifyContent: 'center', alignItems: 'center' },
+    tabPillContainer: { flexDirection: 'row', backgroundColor: '#FFFFFF', padding: 8, marginHorizontal: 24, borderRadius: 30, marginTop: 10, borderWidth: 1, borderColor: '#FFFFFF', elevation: 3 },
+    tabPill: { flex: 1, paddingVertical: 10, borderRadius: 25 },
+    activeTabPill: { backgroundColor: '#0052FF' },
+    tabText: { textAlign: 'center', color: '#0052FF', fontWeight: 'bold', fontSize: 16 },
+    activeTabText: { color: '#FFFFFF' },
+    pageTitle: { fontSize: 24, fontWeight: 'bold', color: '#0D253C', marginTop: 20, marginBottom: 10 },
+    card: { backgroundColor: '#FFFFFF', borderRadius: 20, padding: 20, marginBottom: 20, marginTop: 10 },
+    cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
+    cardTitle: { fontSize: 18, fontWeight: 'bold', color: '#0D253C' },
+    cardIcons: { flexDirection: 'row' },
+    barChartWrapper: { paddingVertical: 10, alignSelf: 'center' },
+    predictionRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 20, paddingTop: 20, borderTopWidth: 1, borderTopColor: '#F0F4F8' },
+    predictionItem: { flexDirection: 'row', alignItems: 'center' },
+    predictionTextContainer: { marginLeft: 12 },
+    predictionLabel: { fontSize: 14, color: '#858585' },
+    predictionAmount: { fontSize: 16, fontWeight: 'bold', color: '#0D253C' },
+    transactionSectionTitle: { fontSize: 20, fontWeight: 'bold', color: '#0D253C', marginTop: 10, marginBottom: 15 },
+    transactionItem: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFFFFF', padding: 15, borderRadius: 20, marginBottom: 15, elevation: 2 },
+    transactionIconContainer: { width: 50, height: 50, borderRadius: 15, justifyContent: 'center', alignItems: 'center', marginRight: 15 },
+    transactionDetails: { flex: 1 },
+    transactionTitle: { fontSize: 16, fontWeight: 'bold', color: '#0D253C' },
+    transactionDate: { fontSize: 14, color: '#858585', marginTop: 4 },
+    transactionAmount: { fontSize: 16, fontWeight: 'bold', color: '#FF4545' },
+    analysisContainer: { flexDirection: 'row', alignItems: 'center', marginTop: 20 },
+    analysisLegend: { flex: 1, marginLeft: 20 },
+    legendItem: { flexDirection: 'row', alignItems: 'center', marginBottom: 10 },
+    legendDot: { width: 12, height: 12, borderRadius: 6, marginRight: 8 },
+    legendText: { fontSize: 14, color: '#0D253C' },
+    analysisItem: { flexDirection: 'row', backgroundColor: '#FFFFFF', borderRadius: 20, padding: 15, marginBottom: 15, alignItems: 'center', elevation: 2 },
+    analysisIconContainer: { width: 50, height: 50, borderRadius: 15, justifyContent: 'center', alignItems: 'center', marginRight: 15 },
+    analysisDetails: { flex: 1 },
+    analysisLabel: { fontSize: 16, fontWeight: 'bold', color: '#0D253C' },
+    analysisCount: { fontSize: 12, color: '#858585', marginTop: 2 },
+    analysisAmountContainer: { alignItems: 'flex-end' },
+    analysisAmount: { fontSize: 16, fontWeight: 'bold', color: '#0D253C' },
+    analysisPercentage: { fontSize: 12, color: '#858585', marginTop: 2 },
 });
-
-
-
-
-
-
-
-
-
-

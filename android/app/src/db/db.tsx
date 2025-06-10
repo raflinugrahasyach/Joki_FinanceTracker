@@ -204,6 +204,9 @@ export type User = {
   name: string;
   email: string;
   password: string;
+  phone: string;
+  occupation: string;
+  gender: string;
 };
 
 const db = SQLite.openDatabase(
@@ -214,12 +217,11 @@ const db = SQLite.openDatabase(
   () => {
     console.log('✅ Database opened');
   },
-  error => {
+  (error: any) => {
     console.log('❌ Error opening database:', error);
   }
 );
 
-//  Create table USERS
 export const createUserTable = () => {
   db.transaction((tx: Transaction) => {
     tx.executeSql(
@@ -227,7 +229,10 @@ export const createUserTable = () => {
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT,
         email TEXT UNIQUE,
-        password TEXT
+        password TEXT,
+        phone TEXT,
+        occupation TEXT,
+        gender TEXT
       )`,
       [],
       () => console.log('✅ User table created'),
@@ -239,7 +244,8 @@ export const createUserTable = () => {
   });
 };
 
-//  Create table EXPENSES
+// --- PERBAIKAN DI SINI ---
+// Skema tabel EXPENSES diperbarui dengan kolom `title` dan `description`
 export const createExpenseTable = () => {
   db.transaction((tx) => {
     tx.executeSql(
@@ -248,10 +254,12 @@ export const createExpenseTable = () => {
         user_id INTEGER,
         amount REAL,
         type TEXT,
-        createdAt TEXT
+        createdAt TEXT,
+        title TEXT,
+        description TEXT
       )`,
       [],
-      () => console.log('✅ Expense table created'),
+      () => console.log('✅ Expense table created with all columns'),
       (_, error) => {
         console.log('❌ Failed to create expense table:', error);
         return true;
@@ -260,48 +268,31 @@ export const createExpenseTable = () => {
   });
 };
 
-//  Insert new user with validations
 export const insertUser = (
-  name: string,
-  email: string,
-  password: string,
-  onSuccess: () => void,
+  name: string, email: string, password: string, phone: string,
+  occupation: string, gender: string, onSuccess: () => void,
   onError: (message: string) => void
 ) => {
-  // Validasi input kosong
   if (!name.trim()) return onError('Nama harus diisi');
   if (!email.trim()) return onError('Email harus diisi');
   if (!password.trim()) return onError('Password harus diisi');
-
-  // Validasi panjang dan format
-  if (name.length < 8 || name.length > 20) {
-    return onError('Nama harus 8-20 karakter');
-  }
-  if (!email.includes('@gmail.com')) {
-    return onError('Email harus menggunakan @gmail.com');
-  }
-  if (
-    password.length < 6 ||
-    password.length > 15 ||
-    password.toLowerCase().includes(name.toLowerCase()) ||
-    !/[0-9]/.test(password) ||
-    !/[A-Z]/.test(password) ||
-    !/[a-z]/.test(password)
-  ) {
+  if (!phone.trim()) return onError('Nomor HP harus diisi');
+  if (!occupation.trim()) return onError('Pekerjaan harus diisi');
+  if (!gender.trim()) return onError('Gender harus dipilih');
+  if (name.length < 8 || name.length > 20) return onError('Nama harus 8-20 karakter');
+  if (!email.includes('@gmail.com')) return onError('Email harus menggunakan @gmail.com');
+  if (password.length < 6 || password.length > 15 || password.toLowerCase().includes(name.toLowerCase()) || !/[0-9]/.test(password) || !/[A-Z]/.test(password) || !/[a-z]/.test(password)) {
     return onError('Password harus 6–15 karakter, mengandung huruf besar & kecil, angka, dan tidak boleh mengandung nama');
   }
-
-  // Simpan ke database
   db.transaction(tx => {
     tx.executeSql(
-      'INSERT INTO users (name, email, password) VALUES (?, ?, ?)',
-      [name, email, password],
+      'INSERT INTO users (name, email, password, phone, occupation, gender) VALUES (?, ?, ?, ?, ?, ?)',
+      [name, email, password, phone, occupation, gender],
       () => {
         console.log('✅ User inserted');
         onSuccess();
       },
       (_, error) => {
-        console.log('❌ Insert user error:', error);
         onError('Gagal membuat akun. Email mungkin sudah digunakan.');
         return false;
       }
@@ -309,22 +300,15 @@ export const insertUser = (
   });
 };
 
-//  Login check
-export const checkUserExists = async (
-  email: string,
-  password: string
-): Promise<User | null> => {
+export const checkUserExists = async (email: string, password: string): Promise<User | null> => {
   return new Promise((resolve, reject) => {
     db.transaction((tx) => {
       tx.executeSql(
         'SELECT * FROM users WHERE email = ? AND password = ?',
         [email, password],
         (_, { rows }) => {
-          if (rows.length > 0) {
-            resolve(rows.item(0));
-          } else {
-            resolve(null);
-          }
+          if (rows.length > 0) resolve(rows.item(0));
+          else resolve(null);
         },
         (_, error) => reject(error)
       );
@@ -332,42 +316,9 @@ export const checkUserExists = async (
   });
 };
 
-//  Login callback version
-export const loginUser = (
-  email: string,
-  password: string,
-  onSuccess: (user: any) => void,
-  onError: (err: any) => void
-) => {
+export const getAllUsers = (onSuccess: (users: any[]) => void, onError: (err: any) => void) => {
   db.transaction(tx => {
-    tx.executeSql(
-      'SELECT * FROM users WHERE email = ? AND password = ?',
-      [email, password],
-      (_, results) => {
-        if (results.rows.length > 0) {
-          onSuccess(results.rows.item(0));
-        } else {
-          onError('Invalid credentials');
-        }
-      },
-      (_, error) => {
-        console.log('❌ Login error:', error);
-        onError(error);
-        return false;
-      }
-    );
-  });
-};
-
-//  Get all users
-export const getAllUsers = (
-  onSuccess: (users: any[]) => void,
-  onError: (err: any) => void
-) => {
-  db.transaction(tx => {
-    tx.executeSql(
-      'SELECT * FROM users',
-      [],
+    tx.executeSql('SELECT * FROM users', [],
       (tx, results) => {
         const users = [];
         for (let i = 0; i < results.rows.length; i++) {
@@ -376,7 +327,6 @@ export const getAllUsers = (
         onSuccess(users);
       },
       (_, error) => {
-        console.log('❌ Get users error:', error);
         onError(error);
         return false;
       }

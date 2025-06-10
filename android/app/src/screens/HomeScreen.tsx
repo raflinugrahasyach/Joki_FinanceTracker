@@ -1,222 +1,328 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
-  View,
-  Text,
-  FlatList,
-  TouchableOpacity,
   StyleSheet,
+  Text,
+  View,
+  TouchableOpacity,
+  FlatList,
+  ScrollView,
   SafeAreaView,
-  Dimensions,
-  Animated,
-  Image
 } from 'react-native';
-import LinearGradient from 'react-native-linear-gradient';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { PieChart } from 'react-native-gifted-charts';
+import { useFocusEffect } from '@react-navigation/native';
 import db from '../db/db';
-import defaultProfile from '../icon/profile.png';
+import { PieChart } from 'react-native-gifted-charts';
 
-const { width } = Dimensions.get('window');
+// Import ikon SVG
+import UserIcon from '../components/icons/UserIcon';
+import HomeIcon from '../components/icons/HomeIcon';
+import PlusIcon from '../components/icons/PlusIcon';
+import ChartIcon from '../components/icons/ChartIcon';
+import GroceriesIcon from '../components/icons/GroceriesIcon';
+import TransportIcon from '../components/icons/TransportIcon';
+import BillsIcon from '../components/icons/BillsIcon';
+import EntertainmentIcon from '../components/icons/EntertainmentIcon';
+
+// Objek untuk memetakan kategori ke komponen Ikon SVG yang benar
+// TIDAK ADA LAGI 'require()'
+const categoryIcons: { [key: string]: React.FC<any> } = {
+    'Makanan': GroceriesIcon,
+    'Belanja': GroceriesIcon,
+    'Transportasi': TransportIcon,
+    'Hiburan': EntertainmentIcon,
+    'Tagihan': BillsIcon,
+    'Default': BillsIcon, // Ikon default jika kategori tidak cocok
+};
 
 export default function HomeScreen({ navigation }: any) {
-  const [expenses, setExpenses] = useState<any[]>([]);
   const [userName, setUserName] = useState('');
-  const [profileImage, setProfileImage] = useState<string | null>(null);
+  const [totalBalance, setTotalBalance] = useState(2500000); // Sesuai mockup
+  const [expenses, setExpenses] = useState<any[]>([]);
 
-  const fadeAnim = useRef(new Animated.Value(0)).current;
-  const slideAnim = useRef(new Animated.Value(20)).current;
-
-  const totalBalance = expenses.reduce((sum, e) => sum + e.amount, 0);
-
-  useEffect(() => {
-    Animated.parallel([
-      Animated.timing(fadeAnim, { toValue: 1, duration: 600, useNativeDriver: true }),
-      Animated.timing(slideAnim, { toValue: 0, duration: 600, useNativeDriver: true }),
-    ]).start();
-
-    const loadData = async () => {
-      const userId = await AsyncStorage.getItem('userId');
-      const storedName = await AsyncStorage.getItem('userName');
-      const storedImage = await AsyncStorage.getItem('userProfile');
-
-      if (storedName) setUserName(storedName);
-      if (storedImage) setProfileImage(storedImage);
-
-      if (!userId) {
-        console.log('User ID not found.');
-        return;
-      }
-
-      db.transaction(tx => {
-        tx.executeSql(
-          'SELECT * FROM expenses WHERE user_id = ?',
-          [userId],
-          (_, result) => {
-            const data: any[] = [];
-            for (let i = 0; i < result.rows.length; i++) {
-              data.push(result.rows.item(i));
-            }
-            setExpenses(data);
-          },
-          (_, error) => {
-            console.log('Select error:', error);
-            return true;
+  useFocusEffect(
+    useCallback(() => {
+      const loadData = async () => {
+        try {
+          const userId = await AsyncStorage.getItem('userId');
+          const storedName = await AsyncStorage.getItem('userName');
+          
+          if (storedName) {
+            setUserName(storedName);
           }
-        );
-      });
-    };
 
-    loadData();
-  }, []);
+          if (userId) {
+            db.transaction(tx => {
+              tx.executeSql(
+                'SELECT * FROM expenses WHERE user_id = ? ORDER BY createdAt DESC',
+                [userId],
+                (_, { rows }) => {
+                  const fetchedExpenses: any[] = [];
+                  let spent = 0;
+                  for (let i = 0; i < rows.length; i++) {
+                    const item = rows.item(i);
+                    fetchedExpenses.push(item);
+                    spent += item.amount;
+                  }
+                  setExpenses(fetchedExpenses);
+                  setTotalBalance(2500000 - spent); // Asumsi balance awal 2.5jt
+                }
+              );
+            });
+          }
+        } catch (error) {
+          console.error("Failed to load data from storage", error);
+        }
+      };
 
-  const renderExpense = ({ item }: any) => (
-    <View style={styles.expenseRow}>
-      <View style={styles.expenseIcon} />
-      <View style={styles.expenseInfo}>
-        <Text style={styles.expenseLabel}>{item.type}</Text>
-        <Text style={styles.expenseDate}>{item.createdAt.slice(0, 10)}</Text>
-      </View>
-      <Text style={styles.expenseAmount}>-Rp {item.amount.toLocaleString('id-ID')}</Text>
-    </View>
+      loadData();
+    }, [])
   );
+  
+  const categoryData = expenses.reduce((acc, expense) => {
+    const { type, amount } = expense;
+    if (!acc[type]) {
+      acc[type] = 0;
+    }
+    acc[type] += amount;
+    return acc;
+  }, {} as Record<string, number>);
 
-  const colors = ['#2A9D8F', '#E76F51', '#F4A261', '#264653'];
+  const pieData = Object.keys(categoryData).map((key, index) => {
+      const colors = ['#0052FF', '#00C4DF', '#FFC837', '#FF82A9', '#7A4DFF'];
+      return {
+          value: categoryData[key],
+          color: colors[index % colors.length],
+          label: key
+      }
+  })
+
+  const renderTransactionItem = ({ item }: { item: any }) => {
+      const iconColors: { [key: string]: string } = {
+          'Makanan': '#FFC837', 
+          'Belanja': '#FF82A9',
+          'Transportasi': '#00C4DF',
+          'Hiburan': '#FF82A9',
+          'Tagihan': '#7A4DFF'
+        };
+      const bgColor = iconColors[item.type] || '#E0E0E0';
+      const IconComponent = categoryIcons[item.type] || categoryIcons['Default'];
+
+      return (
+        <View style={styles.transactionItem}>
+          <View style={[styles.iconContainer, { backgroundColor: `${bgColor}30` }]}>
+              <IconComponent stroke={bgColor} width={28} height={28} /> 
+          </View>
+          <View style={styles.transactionDetails}>
+            <Text style={styles.transactionTitle}>{item.type}</Text>
+            <Text style={styles.transactionDate}>
+                {new Date(item.createdAt).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })} - {new Date(item.createdAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'long' })}
+            </Text>
+          </View>
+          <Text style={styles.transactionAmount}>-Rp{item.amount.toLocaleString('id-ID')}</Text>
+        </View>
+      );
+  }
 
   return (
-    <Animated.View style={[styles.container, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
-      <SafeAreaView style={{ flex: 1 }}>
-        <FlatList
-          ListHeaderComponent={
-            <>
-              <View style={{ position: 'relative' }}>
-                <LinearGradient
-                  colors={['#4E6EF2', '#5D86F3']}
-                  style={styles.headerGradient}
-                />
-
-                <View style={{ position: 'absolute', top: 20, right: 20, zIndex: 1 }}>
-                  <TouchableOpacity onPress={() => navigation.navigate('EditProfile')}>
-                    <Image
-                      source={profileImage ? { uri: profileImage } : defaultProfile}
-                      style={{ width: 40, height: 40, borderRadius: 20 }}
-                    />
-                  </TouchableOpacity>
+    <SafeAreaView style={styles.safeArea}>
+        <View style={styles.container}>
+            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{paddingBottom: 100}}>
+                <View style={styles.header}>
+                    <View>
+                        <Text style={styles.greeting}>Hi, Welcome Back</Text>
+                        <Text style={styles.username}>{userName}</Text>
+                    </View>
+                    <TouchableOpacity onPress={() => navigation.navigate('EditProfile')}>
+                        <View style={styles.profileIcon}>
+                            <UserIcon stroke="#FFFFFF" width={28} height={28}/>
+                        </View>
+                    </TouchableOpacity>
                 </View>
 
-                <View style={styles.headerContent}>
-                  <Text style={styles.userGreeting}>Hi, {userName}</Text>
-                  <Text style={styles.accountTitle}>Main Account</Text>
-                  <Text style={styles.balance}>Rp {totalBalance.toLocaleString('id-ID')}</Text>
-                  <Text style={styles.balanceChange}>+Rp 2.775.000 bulan ini</Text>
+                <View style={styles.balanceContainer}>
+                    <Text style={styles.balanceTitle}>Balance</Text>
+                    <Text style={styles.balanceAmount}>Rp{totalBalance.toLocaleString('id-ID')}</Text>
+                    <View style={styles.chartContainer}>
+                         <PieChart 
+                            data={pieData} 
+                            donut={false}
+                            radius={80}
+                            showText={false}
+                            focusOnPress
+                        />
+                    </View>
+                    <View style={styles.legendContainer}>
+                        {pieData.map(item => (
+                             <View key={item.label} style={styles.legendItem}>
+                                <View style={[styles.legendDot, {backgroundColor: item.color}]} />
+                                <Text style={styles.legendText}>{item.label}</Text>
+                            </View>
+                        ))}
+                    </View>
                 </View>
-              </View>
-
-              <View style={styles.chartContainer}>
-                <PieChart
-                  data={expenses.map((e, i) => ({
-                    value: e.amount,
-                    color: colors[i % colors.length],
-                    text: e.type,
-                  }))}
-                  donut
-                  showText
-                  textColor="white"
-                  textSize={12}
-                  radius={90}
-                  innerRadius={50}
+                
+                <FlatList
+                    data={expenses}
+                    keyExtractor={(item) => item.id.toString()}
+                    renderItem={renderTransactionItem}
+                    scrollEnabled={false}
+                    ListHeaderComponent={<Text style={styles.listHeader}>Transactions</Text>}
                 />
-              </View>
-
-              <View style={styles.transactionHeader}>
-                <Text style={styles.transactionTitle}>Recent Transactions</Text>
-              </View>
-            </>
-          }
-          data={expenses}
-          keyExtractor={(item) => item.id.toString()}
-          renderItem={renderExpense}
-          contentContainerStyle={styles.listContainer}
-        />
-
-        <View style={styles.fabContainer}>
-          <TouchableOpacity style={[styles.fab, styles.fabAdd]} onPress={() => navigation.navigate('AddExpense')}>
-            <Text style={styles.fabText}>＋</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={[styles.fab, styles.fabChart]} onPress={() => navigation.navigate('Prediction')}>
-            <Text style={styles.fabText}>📈</Text>
-          </TouchableOpacity>
+            </ScrollView>
         </View>
-      </SafeAreaView>
-    </Animated.View>
+
+        <View style={styles.bottomNav}>
+            <TouchableOpacity style={styles.navButton} onPress={() => navigation.navigate('AddExpense')}>
+                <PlusIcon stroke="#A1A1A1"/>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.navButton} onPress={() => navigation.navigate('Home')}>
+                <HomeIcon stroke="#0052FF"/>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.navButton} onPress={() => navigation.navigate('Prediction')}>
+                <ChartIcon stroke="#A1A1A1"/>
+            </TouchableOpacity>
+        </View>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F0F4F8' },
-  headerGradient: {
-    height: 200,
-    borderBottomLeftRadius: 20,
-    borderBottomRightRadius: 20
-  },
-  headerContent: {
-    position: 'absolute',
-    top: 40,
-    width: '100%',
-    alignItems: 'center'
-  },
-  userGreeting: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#FFF',
-    marginBottom: 6
-  },
-  accountTitle: { fontSize: 16, color: '#FFF' },
-  balance: { fontSize: 32, fontWeight: 'bold', color: '#FFF' },
-  balanceChange: { fontSize: 14, color: '#D0E1FD', marginTop: 4 },
-  chartContainer: { paddingHorizontal: 16, marginTop: 20, alignItems: 'center' },
-  transactionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginHorizontal: 16,
-    marginTop: 24
-  },
-  transactionTitle: { fontSize: 18, fontWeight: '600', color: '#333' },
-  listContainer: { paddingHorizontal: 16, paddingBottom: 120 },
-  expenseRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FFF',
-    borderRadius: 10,
-    padding: 16,
-    marginBottom: 12
-  },
-  expenseIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: '#E0E0E0',
-    marginRight: 12
-  },
-  expenseInfo: { flex: 1 },
-  expenseLabel: { fontSize: 16, color: '#333' },
-  expenseDate: { fontSize: 12, color: '#888' },
-  expenseAmount: { fontSize: 16, fontWeight: '600', color: '#E76F51' },
-  fabContainer: {
-    position: 'absolute',
-    right: 24,
-    bottom: 16,
-    flexDirection: 'column',
-    alignItems: 'center'
-  },
-  fab: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 16
-  },
-  fabAdd: { backgroundColor: '#2A9D8F' },
-  fabChart: { backgroundColor: '#264653' },
-  fabText: { fontSize: 24, color: '#FFF' }
+    safeArea: {
+        flex: 1,
+        backgroundColor: '#E6F0FF',
+    },
+    container: {
+        flex: 1,
+        backgroundColor: '#E6F0FF',
+    },
+    header: {
+        backgroundColor: '#0052FF',
+        paddingHorizontal: 24,
+        paddingTop: 20,
+        paddingBottom: 60,
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+    },
+    greeting: {
+        color: '#FFFFFF',
+        fontSize: 16,
+    },
+    username: {
+        color: '#FFFFFF',
+        fontSize: 24,
+        fontWeight: 'bold',
+    },
+    profileIcon: {
+        width: 48,
+        height: 48,
+        borderRadius: 24,
+        backgroundColor: 'rgba(255, 255, 255, 0.3)',
+        justifyContent: 'center',
+        alignItems: 'center'
+    },
+    balanceContainer: {
+        backgroundColor: '#FFFFFF',
+        borderRadius: 30,
+        padding: 20,
+        marginHorizontal: 24,
+        marginTop: -40,
+        alignItems: 'center',
+        elevation: 5,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 5,
+    },
+    balanceTitle: {
+        color: '#858585',
+        fontSize: 18,
+    },
+    balanceAmount: {
+        color: '#0D253C',
+        fontSize: 40,
+        fontWeight: 'bold',
+        marginTop: 5,
+    },
+    chartContainer: {
+        marginVertical: 20,
+    },
+    legendContainer: {
+        flexDirection: 'row',
+        justifyContent: 'center',
+        flexWrap: 'wrap',
+    },
+    legendItem: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginHorizontal: 15,
+        marginBottom: 5
+    },
+    legendDot: {
+        width: 10,
+        height: 10,
+        borderRadius: 5,
+        marginRight: 8,
+    },
+    legendText: {
+        fontSize: 16,
+        color: '#0D253C',
+    },
+    listHeader: {
+        fontSize: 20,
+        fontWeight: 'bold',
+        color: '#0D253C',
+        paddingHorizontal: 24,
+        marginTop: 30,
+        marginBottom: 10,
+    },
+    transactionItem: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#FFFFFF',
+        marginHorizontal: 24,
+        borderRadius: 20,
+        padding: 15,
+        marginBottom: 15,
+    },
+    iconContainer: {
+        width: 50,
+        height: 50,
+        borderRadius: 15,
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginRight: 15,
+    },
+    transactionDetails: {
+        flex: 1,
+    },
+    transactionTitle: {
+        fontSize: 16,
+        fontWeight: 'bold',
+        color: '#0D253C',
+    },
+    transactionDate: {
+        fontSize: 14,
+        color: '#858585',
+        marginTop: 4,
+    },
+    transactionAmount: {
+        fontSize: 16,
+        fontWeight: 'bold',
+        color: '#FF4545',
+    },
+    bottomNav: {
+        flexDirection: 'row',
+        justifyContent: 'space-around',
+        backgroundColor: '#FFFFFF',
+        borderTopLeftRadius: 30,
+        borderTopRightRadius: 30,
+        paddingVertical: 10,
+        elevation: 10,
+    },
+    navButton: {
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: 10
+    },
 });
