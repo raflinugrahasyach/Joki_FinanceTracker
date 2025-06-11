@@ -68,10 +68,11 @@ export default function App(): JSX.Element {
         ) : (
           // Grup layar jika pengguna belum login
           <>
+            <Stack.Screen name="Register" component={RegisterScreen} />
             <Stack.Screen name="Login">
               {(props) => <LoginScreen {...props} onLoginSuccess={handleLoginSuccess} />}
             </Stack.Screen>
-            <Stack.Screen name="Register" component={RegisterScreen} />
+            
             <Stack.Screen name="Admin" component={AdminUserList} />
           </>
         )}
